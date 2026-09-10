@@ -1,90 +1,124 @@
-# Maze Solver Laboratory — Get Started
+# 🧩 Maze Solver Laboratory — Advanced Edition
 
-Robust pathfinding lab for comparing **BFS / Dijkstra / A*** on weighted terrain with benchmarking, heuristics, and procedural stress-testing.
+**Weighted pathfinding lab** comparing **BFS / DFS / Dijkstra / A* / Greedy / Bidirectional BFS** on terrain with live benchmarking, interactive Web UI, desktop GUI, heatmaps, and procedural stress-testing.
+
+> **New in v1.0:** Web UI, Tkinter GUI, 3 new algorithms, diagonal mode, JSON/PNG export, expanded benchmark suite.
+
+---
 
 ## 1. Requirements
 
-* Python >= 3.10 (stdlib only, no extra deps)
+* **Python >= 3.10** (stdlib only for core; optional Pillow for PNG export)
 * Windows / macOS / Linux
+* No mandatory external dependencies
 
 Verify:
-
 ```bash
 python --version  # >= 3.10
 ```
 
-## 2. Install
+---
+
+## 2. Install & Start
+
+### Option A — Editable install (recommended, exposes `maze-solver` CLI)
 
 ```bash
-# clone your repo
-https://github.com/Ifaz2611/Maze-Solver-Advance
-cd Maze-Solver-Advance
-
-# editable install (exposes `maze-solver` CLI)
+# from project root (where pyproject.toml lives)
 pip install -e .
 
-# alternative without install — use PYTHONPATH
-# Linux/macOS: PYTHONPATH=src python -m maze_solver ...
-# Windows PowerShell: $env:PYTHONPATH="src"; python -m maze_solver ...
+# verify
+maze-solver --help
 ```
+
+### Option B — Without install (use PYTHONPATH)
+
+```bash
+# Linux / macOS
+PYTHONPATH=src python -m maze_solver --help
+
+# Windows PowerShell
+$env:PYTHONPATH="src"; python -m maze_solver --help
+
+# Windows CMD
+set PYTHONPATH=src && python -m maze_solver --help
+```
+
+### Quick sanity check
+
+```bash
+maze-solver mazes/standard/labyrinth.maze --benchmark
+```
+
+---
 
 ## 3. Project Layout
 
 ```
-maze-solver/
+MAZE SOLVER/
 ├── mazes/
 │   ├── standard/       # unweighted (#, S, G, space)
 │   ├── weighted/       # terrain: '.' dirt=2, 'm' mud=5, 'w' water=10
 │   └── procedural/     # auto-generated stress mazes
 ├── src/maze_solver/
-│   ├── graphs/algorithms/  # Strategy Pattern: base.py, bfs.py, dijkstra.py, astar.py
+│   ├── graphs/algorithms/  # BFS, DFS, Dijkstra, AStar, Greedy, Bi-BFS (Strategy Pattern)
 │   ├── graphs/heuristics.py# manhattan, euclidean, chebyshev, octile, zero
 │   ├── graphs/graph.py     # explicit weighted adjacency list
 │   ├── models/terrain.py   # TerrainType costs
 │   ├── analytics/          # metrics.py + profiler.py
+│   ├── persistence/        # serializer + exporter (JSON/PNG)
 │   ├── view/               # renderer, animator, heatmap
+│   ├── web/app.py          # interactive Web UI (stdlib HTTP server)
+│   ├── gui.py              # Tkinter desktop visualizer
 │   ├── generator.py        # procedural maze generator
 │   └── __main__.py         # CLI
 ├── pyproject.toml
-└── GETSTART.md
+└── readme.md
 ```
 
 Maze characters:
 - `#` wall (`inf`), `S` start, `G` goal
 - ` ` / `g` grass=1, `.` / `d` dirt=2, `m` mud=5, `w` water=10
 
-## 4. Quick Start
+---
 
-### Solve a single maze (A* manhattan default)
+## 4. How to Start — All Modes
+
+### 4.1 CLI — Single solve (A* manhattan default)
 
 ```bash
 maze-solver mazes/standard/labyrinth.maze
-# or without install:
+# or without install
 python -m maze_solver mazes/standard/labyrinth.maze
 ```
 
-### Choose algorithm
+### 4.2 Choose algorithm
 
 ```bash
 maze-solver mazes/standard/miniature.maze --algorithm bfs
+maze-solver mazes/standard/miniature.maze --algorithm dfs
 maze-solver mazes/standard/miniature.maze --algorithm dijkstra
 maze-solver mazes/standard/miniature.maze --algorithm astar --heuristic euclidean
+maze-solver mazes/standard/miniature.maze --algorithm greedy --heuristic manhattan
+maze-solver mazes/standard/miniature.maze --algorithm bi-bfs
 # heuristics: manhattan, euclidean, chebyshev, octile, zero
 ```
 
-### Benchmark (comparative table)
+### 4.3 Benchmark (comparative table — now 7 algorithms)
 
 ```bash
 maze-solver mazes/standard/labyrinth.maze --benchmark
 maze-solver mazes/weighted/terrain_demo.maze --benchmark --heatmap --show-weights
 maze-solver mazes/procedural/generated_25x15.maze --benchmark
 
-# custom set:
-maze-solver mazes/weighted/terrain_demo.maze --algorithms bfs dijkstra astar-manhattan astar-euclidean
+# custom subset:
+maze-solver mazes/weighted/terrain_demo.maze --algorithms bfs dfs dijkstra astar-manhattan astar-euclidean greedy-manhattan
+# export results
+maze-solver mazes/weighted/terrain_demo.maze --benchmark --export-json results.json --export-image results.png
+maze-solver mazes/standard/labyrinth.maze --benchmark --json  # JSON stdout
 ```
 
 Example output:
-
 ```
 +---------------+----------+----------+----------+-------+------+
 | Algorithm     | Time(ms) | Expanded | Frontier | Steps | Cost |
@@ -95,61 +129,88 @@ Example output:
 +---------------+----------+----------+----------+-------+------+
 Fastest: BFS | Fewest expansions: A*(manhattan)
 ```
-> Weighted maze shows why it matters: BFS finds fewer steps (34) but higher cost (67), Dijkstra/A* find longer step path (38) with minimal cost (48) — A* halves expansions.
 
-### Generate mazes
+### 4.4 Generate mazes
 
 ```bash
-# unweighted
 maze-solver --generate 31x21 --seed 7 --output mazes/procedural/my.maze
-
-# weighted terrain + benchmark in one go
 maze-solver --generate 25x15 --weighted --seed 42 --benchmark --show-weights
-
-# procedural benchmark
 maze-solver --generate 51x31 --weighted --seed 123 --benchmark --heatmap
 ```
 
-### Other options
+### 4.5 Diagonal movement (8-way)
 
 ```bash
-maze-solver mazes/standard/labyrinth.maze --no-path      # render without solution
-maze-solver mazes/weighted/terrain_demo.maze --show-weights # show terrain glyphs
-maze-solver mazes/standard/labyrinth.maze --animate       # step-by-step frontier (single algo)
-maze-solver mazes/standard/labyrinth.maze --algorithm astar --heuristic chebyshev --animate
+maze-solver mazes/standard/labyrinth.maze --diagonal --algorithm astar --heuristic octile
+maze-solver mazes/standard/labyrinth.maze --diagonal --benchmark
 ```
 
-## 5. Python API
+### 4.6 Web UI — Interactive browser solver (NEW)
+
+```bash
+maze-solver --web
+# custom host/port
+maze-solver --web --host 127.0.0.1 --port 8000
+# or without install
+python -m maze_solver --web --port 8000
+```
+
+Then open **http://127.0.0.1:8000** in your browser:
+- Visual grid with path animation (grass/dirt/mud/water colors)
+- Dropdown for all 7 algorithms + heuristics
+- Benchmark bar charts, metrics cards, ASCII render
+- Live maze editor & procedural generator
+- REST API: `POST /api/solve`, `POST /api/benchmark`, `GET /api/generate?w=25&h=15`
+
+### 4.7 Desktop GUI — Tkinter (NEW)
+
+```bash
+maze-solver --gui
+# with initial maze
+maze-solver mazes/standard/labyrinth.maze --gui
+```
+
+Features: Open .maze files, generate weighted/unweighted, solve with any algorithm, animated visited overlay, benchmark popup.
+
+### 4.8 Other CLI flags
+
+```bash
+maze-solver mazes/standard/labyrinth.maze --no-path           # without solution
+maze-solver mazes/weighted/terrain_demo.maze --show-weights    # terrain glyphs
+maze-solver mazes/standard/labyrinth.maze --animate            # step-by-step (single algo)
+maze-solver mazes/standard/labyrinth.maze --diagonal --animate
+```
+
+### 4.9 Python API
 
 ```python
 from maze_solver.persistence.serializer import load_maze
 from maze_solver.graphs.algorithms import BFS, Dijkstra, AStar
+from maze_solver.graphs.algorithms.dfs import DFS
+from maze_solver.graphs.algorithms.greedy import GreedyBFS
 from maze_solver.analytics.profiler import run_benchmark_suite, format_table
 from maze_solver.view.renderer import render
 
 maze = load_maze("mazes/weighted/terrain_demo.maze")
 
 results = run_benchmark_suite(
-    [BFS(), Dijkstra(), AStar("manhattan"), AStar("euclidean")],
+    [BFS(), DFS(), Dijkstra(), AStar("manhattan"), GreedyBFS("manhattan")],
     maze
 )
 print(format_table(results))
 
-# single algorithm
+# single algorithm + export
+from maze_solver.persistence.exporter import export_solution_json, export_maze_image
 path, metrics = AStar("manhattan").solve(maze.start, maze.goal, maze=maze)
-print(metrics)  # [A*(manhattan)] Time: 0.46ms | Expanded: 56 | ...
-print(render(maze, solution))  # with path
+print(metrics)
+print(render(maze, solution))
+export_solution_json(path, metrics, "out.json")
+export_maze_image(maze, path, "out.png")  # Pillow for PNG, else PPM
 ```
 
-Weighted graph explicitly:
+---
 
-```python
-from maze_solver.graphs.converter import to_weighted_graph
-graph = to_weighted_graph(maze)
-print(graph.edge_count(), len(graph))
-```
-
-## 6. Creating Custom Mazes
+## 5. Creating Custom Mazes
 
 Plain text `.maze` file, all rows same width:
 
@@ -163,9 +224,29 @@ Plain text `.maze` file, all rows same width:
 
 Save and run `maze-solver path/to/maze.maze --benchmark`.
 
-## 7. Troubleshooting
+---
+
+## 6. Troubleshooting
 
 * `No module named maze_solver` → `pip install -e .` or `PYTHONPATH=src python -m maze_solver ...`
 * `Maze rows must all have the same width.` → pad rows with spaces/`#` to equal length
 * `Unsupported character` → allowed: `# S G space . m w g d` (see `persistence/file_format.py:1`)
 * PowerShell quoting: use `$env:PYTHONPATH="src"`
+* PNG export fails → `pip install Pillow` or it falls back to PPM format
+* Web port in use → `maze-solver --web --port 8001`
+
+---
+
+## 7. Advanced Features Summary
+
+| Feature | Command |
+|---------|---------|
+| 7 algorithms | `--algorithms bfs dfs dijkstra bi-bfs astar-manhattan greedy-manhattan` |
+| Diagonal 8-way | `--diagonal` |
+| Heatmaps | `--heatmap` |
+| Animate | `--animate` |
+| JSON export | `--export-json out.json` / `--json` |
+| PNG export | `--export-image out.png` |
+| Web UI | `--web --port 8000` |
+| Desktop GUI | `--gui` |
+| Procedural | `--generate 31x21 --weighted --seed 42` |

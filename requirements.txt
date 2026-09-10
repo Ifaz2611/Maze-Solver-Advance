@@ -1,1 +1,3 @@
-# Runtime dependencies are intentionally empty; maze-solver uses the Python standard library.
+# No required dependencies - stdlib only. Optional:
+# pip install Pillow  # for PNG image export
+# pip install pytest  # for tests

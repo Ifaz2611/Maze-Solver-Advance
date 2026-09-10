@@ -12,6 +12,7 @@ class Maze:
     rows: tuple[tuple[Square, ...], ...]
     start: Square
     goal: Square
+    allow_diagonal: bool = False
 
     @classmethod
     def from_text(cls, text: str) -> "Maze":
@@ -64,11 +65,40 @@ class Maze:
             return self.rows[row][column]
         return None
 
-    def neighbors(self, square: Square) -> tuple[Square, ...]:
+    def neighbors(self, square: Square, allow_diagonal: bool | None = None) -> tuple[Square, ...]:
+        use_diag = self.allow_diagonal if allow_diagonal is None else allow_diagonal
         candidates = (
             self.square_at(square.row - 1, square.column),
             self.square_at(square.row, square.column + 1),
             self.square_at(square.row + 1, square.column),
             self.square_at(square.row, square.column - 1),
         )
-        return tuple(candidate for candidate in candidates if candidate and candidate.walkable)
+        orthogonal = tuple(candidate for candidate in candidates if candidate and candidate.walkable)
+        if not use_diag:
+            return orthogonal
+        diagonals = (
+            self.square_at(square.row - 1, square.column - 1),
+            self.square_at(square.row - 1, square.column + 1),
+            self.square_at(square.row + 1, square.column + 1),
+            self.square_at(square.row + 1, square.column - 1),
+        )
+        all_neighbors = orthogonal + tuple(c for c in diagonals if c and c.walkable)
+        return all_neighbors
+
+    def to_dict(self) -> dict:
+        """Serialize maze to dict for JSON export."""
+        return {
+            "width": self.width,
+            "height": self.height,
+            "start": [self.start.row, self.start.column],
+            "goal": [self.goal.row, self.goal.column],
+            "grid": ["".join(
+                s.role.value if s.role.value in ("S", "G", "#") else s.terrain.char
+                for s in row
+            ) for row in self.rows],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Maze":
+        grid = "\n".join(data["grid"])
+        return cls.from_text(grid)

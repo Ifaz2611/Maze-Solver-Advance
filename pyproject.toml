@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maze-solver"
+version = "0.1.0"
+description = "A small grid-maze solver with graph conversion and text rendering."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+maze-solver = "maze_solver.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

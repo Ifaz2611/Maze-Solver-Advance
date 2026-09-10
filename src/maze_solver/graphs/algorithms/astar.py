@@ -1,0 +1,93 @@
+"""A* search with pluggable heuristic."""
+
+from __future__ import annotations
+
+import heapq
+import itertools
+from typing import Callable
+
+from ...analytics.metrics import SearchMetrics
+from ...graphs.heuristics import Heuristic, manhattan_distance
+from ...models.maze import Maze
+from ...models.square import Square
+from .base import PathfindingAlgorithm
+
+
+class AStar(PathfindingAlgorithm):
+    def __init__(self, heuristic: Heuristic | str | None = None):
+        if heuristic is None:
+            self.heuristic: Heuristic = manhattan_distance
+            self._heu_name = "manhattan"
+        elif isinstance(heuristic, str):
+            from ...graphs.heuristics import get_heuristic
+            self.heuristic = get_heuristic(heuristic)
+            self._heu_name = heuristic.lower()
+        else:
+            self.heuristic = heuristic
+            self._heu_name = getattr(heuristic, "__name__", "custom")
+
+    @property
+    def name(self) -> str:
+        return f"A*({self._heu_name})"
+
+    def solve(self, start, goal, *, maze=None, graph=None):
+        metrics = SearchMetrics(algorithm_name=self.name)
+        metrics.start_timer()
+
+        if maze is None and graph is None:
+            raise ValueError("A* requires maze or graph")
+
+        if maze is not None:
+            def get_neighbors(sq: Square):
+                return tuple((nb, float(nb.cost)) for nb in maze.neighbors(sq))
+        else:
+            def get_neighbors(sq: Square):
+                return tuple((e.target, float(e.weight)) for e in graph.neighbors(sq))
+
+        open_set: list[tuple[float, int, Square]] = []
+        counter = itertools.count()
+        g_score: dict[Square, float] = {start: 0.0}
+        f_score: dict[Square, float] = {start: self.heuristic(start, goal)}
+        heapq.heappush(open_set, (f_score[start], next(counter), start))
+
+        prev: dict[Square, Square | None] = {start: None}
+        closed: set[Square] = set()
+        metrics.record_frontier(len(open_set))
+
+        while open_set:
+            _, _, current = heapq.heappop(open_set)
+            if current in closed:
+                continue
+            metrics.record_expansion(current)
+            closed.add(current)
+
+            if current == goal:
+                break
+
+            current_g = g_score[current]
+            for neighbor, weight in get_neighbors(current):
+                tentative = current_g + weight
+                if tentative < g_score.get(neighbor, float("inf")):
+                    prev[neighbor] = current
+                    g_score[neighbor] = tentative
+                    f = tentative + self.heuristic(neighbor, goal)
+                    f_score[neighbor] = f
+                    heapq.heappush(open_set, (f, next(counter), neighbor))
+            metrics.record_frontier(len(open_set))
+
+        metrics.stop_timer()
+
+        if goal not in prev:
+            metrics.finalize(None)
+            return None, metrics
+
+        # reconstruct
+        path: list[Square] = []
+        cur: Square | None = goal
+        while cur is not None:
+            path.append(cur)
+            cur = prev[cur]
+        path.reverse()
+        cost = g_score[goal]
+        metrics.finalize(path, cost=cost)
+        return path, metrics

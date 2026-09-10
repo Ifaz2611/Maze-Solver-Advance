@@ -17,8 +17,8 @@ python --version  # >= 3.10
 
 ```bash
 # clone your repo
-git clone https://github.com/<you>/maze-solver.git
-cd maze-solver
+https://github.com/Ifaz2611/Maze-Solver-Advance
+cd Maze-Solver-Advance
 
 # editable install (exposes `maze-solver` CLI)
 pip install -e .

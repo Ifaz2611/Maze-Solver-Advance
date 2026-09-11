@@ -22,10 +22,8 @@ def animate_search(
     frontier: set[Square] = set()
     for i, sq in enumerate(explored_order):
         frontier.add(sq)
-        # clear screen ANSI
         print("\033[H\033[J", end="")
         print(f"Step {i+1}/{len(explored_order)} - visiting {sq.position}")
-        # render with visited highlighting
         frame = _render_with_frontier(maze, frontier, path_set if show_path and i == len(explored_order)-1 else set())
         print(frame)
         time.sleep(delay)
@@ -39,23 +37,10 @@ def _render_with_frontier(maze: Maze, visited: set[Square], path_set: set[Square
         if sq in path_set and sq.role not in (Role.START, Role.GOAL, Role.WALL):
             return "."
         if sq in visited and sq.role == Role.OPEN:
-            # visited but not path = frontier visualization
             return "*"
-        return sq.role.value if sq.role in (Role.START, Role.GOAL, Role.WALL) else _terrain_char(sq)
+        return sq.role.value
 
     lines = []
     for row in maze.rows:
         lines.append("".join(char_for(sq) for sq in row))
     return "\n".join(lines)
-
-
-def _terrain_char(sq: Square) -> str:
-    # show terrain glyph
-    from ..models.terrain import TerrainType
-    if sq.terrain == TerrainType.WATER:
-        return "w"
-    if sq.terrain == TerrainType.MUD:
-        return "m"
-    if sq.terrain == TerrainType.DIRT:
-        return "."
-    return " "

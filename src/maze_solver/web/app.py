@@ -1,11 +1,17 @@
-"""Interactive Web UI - stdlib HTTP server + REST API (no extra deps)."""
+"""Maze Walk: a small, friendly web interface for exploring maze algorithms.
+
+The module deliberately uses the Python standard library for the web server. The
+algorithm implementations remain in the package, while this file owns the HTTP
+boundary and the browser-facing presentation.
+"""
 
 from __future__ import annotations
 
 import json
+import logging
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 
 from ..analytics.profiler import run_benchmark_suite
 from ..generator import generate_maze
@@ -19,10 +25,19 @@ from ..models.maze import Maze
 from ..models.solution import Solution
 from ..view.renderer import render
 
-ROOT = Path(__file__).parent
+logger = logging.getLogger(__name__)
+MAX_REQUEST_BYTES = 256 * 1024
+MIN_MAZE_SIZE = 5
+MAX_MAZE_SIZE = 81
+ALGORITHM_NAMES = (
+    "bfs", "dfs", "dijkstra", "bi-bfs", "astar-manhattan",
+    "astar-euclidean", "astar-octile", "astar-zero", "greedy-manhattan",
+)
 
-def _get_algo(name: str):
-    name = name.lower()
+
+def make_algorithm(name: str):
+    """Build one of the algorithms exposed by the browser."""
+    name = str(name or "").strip().lower()
     if name == "bfs":
         return BFS()
     if name == "dfs":
@@ -32,22 +47,39 @@ def _get_algo(name: str):
     if name == "bi-bfs":
         return BidirectionalBFS()
     if name.startswith("greedy"):
-        parts = name.split("-", 1)
-        heu = parts[1] if len(parts) == 2 else "manhattan"
-        return GreedyBFS(heu)
+        heuristic = name.split("-", 1)[1] if "-" in name else "manhattan"
+        return GreedyBFS(heuristic)
     if name.startswith("astar"):
-        parts = name.split("-", 1)
-        heu = parts[1] if len(parts) == 2 else "manhattan"
-        return AStar(heu)
-    raise ValueError(f"Unknown algorithm {name}")
+        heuristic = name.split("-", 1)[1] if "-" in name else "manhattan"
+        return AStar(heuristic)
+    raise ValueError(f"Unknown algorithm: {name}")
 
-ALGO_LIST = ["bfs", "dfs", "dijkstra", "bi-bfs", "astar-manhattan", "astar-euclidean", "astar-octile", "greedy-manhattan"]
+
+def odd_size(value: Any, fallback: int) -> int:
+    """Keep generated mazes within the UI's supported odd dimensions."""
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        size = fallback
+    size = max(MIN_MAZE_SIZE, min(MAX_MAZE_SIZE, size))
+    if size % 2 == 0:
+        size += 1 if size < MAX_MAZE_SIZE else -1
+    return size
+
+
+def as_bool(value: Any) -> bool:
+    return value if isinstance(value, bool) else str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def maze_json(maze: Maze) -> dict[str, Any]:
+    return maze.to_dict()
+
 
 HTML_PAGE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Maze Solver Lab - Interactive</title>
+<title>Maze Walk | A friendly pathfinding playground</title>
 <style>
 :root{--bg:#0f172a;--card:#1e293b;--accent:#38bdf8;--accent2:#a78bfa;--text:#e2e8f0;--muted:#94a3b8;--path:#facc15;--wall:#020617;--start:#22c55e;--goal:#ef4444;--visited:#334155;--frontier:#38bdf8}
 *{box-sizing:border-box}body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
@@ -79,10 +111,7 @@ button:active{transform:scale(.98)}
 .grid{display:grid;gap:2px;justify-content:start;position:relative;transition:.2s}
 .cell{border-radius:4px;display:flex;align-items:center;justify-content:center;font-weight:800;position:relative;user-select:none;transition:background .18s, transform .18s, box-shadow .18s}
 .cell.wall{background:#020617;border:1px solid #0f172a}
-.cell.grass{background:#f1f5f9;border:1px solid #e2e8f0}
-.cell.dirt{background:#e7c9a9;border:1px solid #d6b98a}
-.cell.mud{background:#8b5a2b;color:#fef3c7;border:1px solid #78350f}
-.cell.water{background:#60a5fa;color:white;border:1px solid #3b82f6}
+.cell.open{background:#f1f5f9;border:1px solid #e2e8f0}
 .cell.start{background:var(--start);color:white;box-shadow:0 0 0 2px rgba(34,197,94,.5);z-index:2}
 .cell.goal{background:var(--goal);color:white;box-shadow:0 0 0 2px rgba(239,68,68,.5);animation:goalPulse 1.4s infinite;z-index:2}
 @keyframes goalPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
@@ -124,21 +153,21 @@ button:active{transform:scale(.98)}
 </head>
 <body>
 <header>
-<div><h1>🧩 Maze Solver Laboratory</h1><p>Human-like explorer • Weighted terrain • A* • BFS • Dijkstra • DFS • Greedy • Bi-BFS</p></div>
-<div style="display:flex;gap:.5rem;flex-wrap:wrap"><button onclick="loadExample('labyrinth')" class="btn-secondary" style="width:auto;padding:.5rem .9rem">🏛 Labyrinth</button><button onclick="loadExample('terrain')" class="btn-secondary" style="width:auto;padding:.5rem .9rem">🌿 Terrain Demo</button></div>
+<div><h1>Maze Walk</h1><p>Try a route, watch the search unfold, and see how each algorithm thinks.</p></div>
+<div style="display:flex;gap:.5rem;flex-wrap:wrap"><button onclick="loadExample('labyrinth')" class="btn-secondary" style="width:auto;padding:.5rem .9rem">Load a labyrinth</button></div>
 </header>
 <div class="container">
 <div class="card">
-<h3 style="margin:0 0 .2rem">⚙ Controls</h3>
-<p style="margin:0;color:var(--muted);font-size:.78rem">Pick an algorithm and watch the explorer think like a human.</p>
+<h3 style="margin:0 0 .2rem">Choose a route</h3>
+<p style="margin:0;color:var(--muted);font-size:.78rem">Pick a strategy, then let the explorer take its time.</p>
 <label>Algorithm</label>
 <select id="algo">
 <option value="astar-manhattan">A* (Manhattan) — best for 4-dir</option>
 <option value="astar-euclidean">A* (Euclidean)</option>
 <option value="astar-octile">A* (Octile) — best for diagonal</option>
 <option value="astar-zero">A* (Zero → Dijkstra)</option>
-<option value="bfs">BFS — unweighted shortest</option>
-<option value="dijkstra">Dijkstra — weighted shortest</option>
+ <option value="bfs">BFS — shortest</option>
+ <option value="dijkstra">Dijkstra — shortest</option>
 <option value="dfs">DFS — deep explorer</option>
 <option value="greedy-manhattan">Greedy (Manhattan)</option>
 <option value="bi-bfs">Bidirectional BFS</option>
@@ -146,20 +175,20 @@ button:active{transform:scale(.98)}
 <label style="display:flex;align-items:center;gap:.5rem;margin-top:.7rem"><input type="checkbox" id="diagonal" style="width:16px;height:16px;accent-color:var(--accent)"> Allow diagonal moves (8-dir)</label>
 
 <div class="controls-group">
-<h4>🧱 Generate maze</h4>
+<h4>Make a new maze</h4>
 <div style="display:flex;gap:.5rem;align-items:end">
 <div style="flex:1"><label style="margin-top:0">Width</label><input id="genW" type="number" value="25" min="5" max="81" step="2"></div>
 <div style="flex:1"><label style="margin-top:0">Height</label><input id="genH" type="number" value="15" min="5" max="81" step="2"></div>
 </div>
-<div class="btn-row"><button onclick="generate()" class="btn-secondary">🎲 Random</button><button onclick="generateWeighted()" class="btn-secondary">🌿 Weighted</button></div>
+ <div class="btn-row"><button onclick="generate()" class="btn-secondary">New maze</button></div>
 <p style="margin:.4rem 0 0;color:var(--muted);font-size:.7rem">Odd sizes give perfect mazes. Clamped 5–81.</p>
 </div>
 
-<label>Maze Editor <span style="color:var(--muted);font-weight:400">(S=start, G=goal, #=wall, .=dirt m=mud w=water)</span></label>
+<label>Maze editor <span style="color:var(--muted);font-weight:400">(S=start, G=goal, #=wall, space=open)</span></label>
 <textarea id="mazeText" placeholder="Paste .maze text here..."></textarea>
 
 <div class="controls-group">
-<h4>🎬 Human-like playback</h4>
+<h4>Walking pace</h4>
 <div style="display:flex;align-items:center;gap:.6rem">
 <label style="margin:0;display:flex;align-items:center;gap:.4rem"><input type="checkbox" id="animateToggle" checked style="width:16px;height:16px;accent-color:var(--accent)"> Animate</label>
 <span id="liveBadge" class="badge badge-live" style="display:none">● LIVE</span>
@@ -167,34 +196,31 @@ button:active{transform:scale(.98)}
 </div>
 <div class="range-row"><span style="font-size:.72rem;color:var(--muted)">Slow</span><input id="speed" type="range" min="1" max="100" value="42"><span style="font-size:.72rem;color:var(--muted)">Fast</span><span id="speedVal">42ms</span></div>
 <div class="btn-row">
-<button onclick="solve()" class="btn-primary" id="solveBtn">▶ Solve & Walk</button>
-<button onclick="togglePause()" class="btn-ghost" id="pauseBtn" style="flex:0 0 90px">⏸ Pause</button>
+<button onclick="solve()" class="btn-primary" id="solveBtn">Find a route</button>
+<button onclick="togglePause()" class="btn-ghost" id="pauseBtn" style="flex:0 0 90px">Pause</button>
 </div>
 <div class="btn-row">
-<button onclick="stepOnce()" class="btn-ghost">⏭ Step</button>
-<button onclick="replay()" class="btn-ghost">↺ Replay</button>
-<button onclick="clearPath()" class="btn-ghost">✕ Clear</button>
+<button onclick="stepOnce()" class="btn-ghost">One step</button>
+<button onclick="replay()" class="btn-ghost">Walk again</button>
+<button onclick="clearPath()" class="btn-ghost">Clear route</button>
 </div>
 </div>
 
-<button onclick="benchmark()" class="btn-secondary">📊 Benchmark All algorithms</button>
+<button onclick="benchmark()" class="btn-secondary">Benchmark All algorithms</button>
 <div id="metrics" class="stats"></div>
 </div>
 
 <div class="card">
 <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
-<h3 style="margin:0">👁 Visualization</h3>
+<h3 style="margin:0">The maze</h3>
 <span id="sizeInfo" style="font-size:.75rem;color:var(--muted);background:#0f172a;padding:.2rem .5rem;border-radius:999px;border:1px solid #334155"></span>
 <span id="costInfo" style="font-size:.75rem;color:var(--muted)"></span>
 </div>
-<div class="status-bar"><div id="statusDot" class="status-dot"></div><div id="statusText" style="flex:1">Ready — pick a maze and press Solve & Walk.</div><div id="progressText" style="font-weight:700;color:var(--accent)"></div></div>
+<div class="status-bar"><div id="statusDot" class="status-dot"></div><div id="statusText" style="flex:1">Ready when you are. Choose a maze and find a route.</div><div id="progressText" style="font-weight:700;color:var(--accent)"></div></div>
 <div class="maze-wrap" id="mazeWrap"><div id="grid" class="grid"></div></div>
 <div class="legend">
 <span><i style="background:#020617"></i> Wall</span>
-<span><i style="background:#f1f5f9;border:1px solid #cbd5e1"></i> Grass (1)</span>
-<span><i style="background:#e7c9a9"></i> Dirt (2)</span>
-<span><i style="background:#8b5a2b"></i> Mud (5)</span>
-<span><i style="background:#60a5fa"></i> Water (10)</span>
+<span><i style="background:#f1f5f9;border:1px solid #cbd5e1"></i> Open</span>
 <span><i style="background:#22c55e"></i> Start</span>
 <span><i style="background:#ef4444"></i> Goal</span>
 <span><i style="background:#facc15"></i> Path</span>
@@ -209,8 +235,7 @@ button:active{transform:scale(.98)}
 <script>
 let lastPath=null, lastMaze=null, lastExplored=null, animTimer=null, animIndex=0, isPaused=false, currentPathSet=null;
 const examples={
- labyrinth: `###############\n#S#   #     # #\n# # # # ### # #\n# # # #   # # #\n# # ### ### # #\n#     #   #   #\n### # # # ### #\n#   # # # #   #\n# ### # # # ###\n#   #   #   #G#\n###############`,
- terrain: `###############\n#S..  m  www G#\n# ## ###m###  #\n#   w....   m #\n# ### mmm ### #\n#     www     #\n###############`
+ labyrinth: `###############\n#S#   #     # #\n# # # # ### # #\n# # # #   # # #\n# # ### ### # #\n#     #   #   #\n### # # # ### #\n#   # # # #   #\n# ### # # # ###\n#   #   #   #G#\n###############`
 };
 function toast(msg, isErr=false){
  const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+(isErr?'err show':'show');
@@ -236,17 +261,14 @@ function buildGridDOM(rows, cellSize){
  document.getElementById('sizeInfo').textContent=`${cols} × ${rows.length}  •  cell ${size}px`;
  const cells=[];
  rows.forEach((row,r)=>{
-  [...row].forEach((ch,c)=>{
-   const d=document.createElement('div'); d.className='cell'; d.style.width=size+'px'; d.style.height=size+'px'; d.style.fontSize=Math.max(7, Math.floor(size*0.55))+'px';
-   const key=`${r},${c}`;
-   d.dataset.r=r; d.dataset.c=c; d.dataset.key=key; d.dataset.ch=ch;
-   if(ch==='S'){ d.classList.add('start'); d.textContent='S'; d.title=`Start (${r},${c})`; }
-   else if(ch==='G'){ d.classList.add('goal'); d.textContent='G'; d.title=`Goal (${r},${c})`; }
-   else if(ch==='#'){ d.classList.add('wall'); d.title=`Wall (${r},${c})`; }
-   else if(ch==='.'){ d.classList.add('dirt'); d.title=`Dirt cost 2 (${r},${c})`; }
-   else if(ch==='m'||ch==='M'){ d.classList.add('mud'); d.title=`Mud cost 5 (${r},${c})`; }
-   else if(ch==='w'||ch==='W'){ d.classList.add('water'); d.title=`Water cost 10 (${r},${c})`; }
-   else { d.classList.add('grass'); d.title=`Grass cost 1 (${r},${c})`; }
+   [...row].forEach((ch,c)=>{
+    const d=document.createElement('div'); d.className='cell'; d.style.width=size+'px'; d.style.height=size+'px'; d.style.fontSize=Math.max(7, Math.floor(size*0.55))+'px';
+    const key=`${r},${c}`;
+    d.dataset.r=r; d.dataset.c=c; d.dataset.key=key; d.dataset.ch=ch;
+    if(ch==='S'){ d.classList.add('start'); d.textContent='S'; d.title=`Start (${r},${c})`; }
+    else if(ch==='G'){ d.classList.add('goal'); d.textContent='G'; d.title=`Goal (${r},${c})`; }
+    else if(ch==='#'){ d.classList.add('wall'); d.title=`Wall (${r},${c})`; }
+    else { d.classList.add('open'); d.title=`Open (${r},${c})`; }
    grid.appendChild(d); cells.push(d);
   });
  });
@@ -352,7 +374,7 @@ function setStatus(state, text){
 function stopAnimation(){
  if(animTimer){ clearTimeout(animTimer); animTimer=null; }
  document.getElementById('liveBadge').style.display='none';
- isPaused=false; document.getElementById('pauseBtn').textContent='⏸ Pause';
+ isPaused=false; document.getElementById('pauseBtn').textContent='Pause';
 }
 function animateHuman(path, explored){
  stopAnimation();
@@ -365,12 +387,12 @@ function animateHuman(path, explored){
   // instant
   if(explored) applyExploredFrontier(path||[], explored, explored.length);
   if(path) applyPathProgress(path, path.length);
-  setStatus('done', `Done — path ${path?path.length-1:0} steps, explored ${explored?explored.length:0} cells.`);
+  setStatus('done', `Finished — route ${path?path.length-1:0} steps, explored ${explored?explored.length:0} cells.`);
   document.getElementById('progressText').textContent='100%';
   return;
  }
  document.getElementById('liveBadge').style.display='inline-flex';
- setStatus('running','Exploring like a human — scanning, remembering, backtracking…');
+ setStatus('running','Looking around… checking nearby paths.');
  const gridRows=lastMaze||[];
  // ensure grid built
  if(!document.getElementById('grid').children.length && gridRows.length) buildGridDOM(gridRows, 18);
@@ -388,13 +410,13 @@ function animateHuman(path, explored){
    document.getElementById('progressText').textContent=Math.round((animIndex/totalSteps)*100)+'%';
    // occasional human pause at branches
    if(Math.random()<0.04) {
-    setStatus('running','Hmm… dead end, backtracking ↩');
-   } else if(animIndex%30===0) setStatus('running','Scanning frontier…');
+    setStatus('running','That way is blocked. I’ll try another turn.');
+   } else if(animIndex%30===0) setStatus('running','Taking a careful look around.');
    animIndex++;
    animTimer=setTimeout(tick, animIndex < exploredLen-6 ? actual : actual*1.4);
   } else if(animIndex < exploredLen + pathLen){
    const pathIdx=animIndex - exploredLen;
-   if(pathIdx===0) setStatus('running','Found it! Walking the shortest path 🚶');
+   if(pathIdx===0) setStatus('running','I found a route. Now I’ll walk it.');
    applyExploredFrontier(path, explored, exploredLen);
    applyPathProgress(path, pathIdx+1);
    // agent moves along path
@@ -412,7 +434,7 @@ function animateHuman(path, explored){
   } else {
    // done - final polish
    if(path) applyPathProgress(path, path.length);
-   setStatus('done', `Arrived! ${pathLen?pathLen-1:0} steps walked, ${exploredLen} cells considered like a human would.`);
+   setStatus('done', `Made it! ${pathLen?pathLen-1:0} steps walked, ${exploredLen} cells considered like a human would.`);
    document.getElementById('stepInfo').textContent=`Done`;
    document.getElementById('progressText').textContent='100%';
    document.getElementById('liveBadge').style.display='none';
@@ -426,7 +448,7 @@ function animateHuman(path, explored){
 function togglePause(){
  if(!animTimer && !isPaused) return;
  isPaused=!isPaused;
- document.getElementById('pauseBtn').textContent=isPaused?'▶ Resume':'⏸ Pause';
+ document.getElementById('pauseBtn').textContent=isPaused?'▶ Resume':'Pause';
  if(!isPaused){
   // resume tick from current index - need to restart loop
   const path=lastPath; const explored=lastExplored;
@@ -482,7 +504,7 @@ async function solve(){
  const algo=document.getElementById('algo').value;
  const diagonal=document.getElementById('diagonal').checked;
  document.getElementById('solveBtn').disabled=true; document.getElementById('solveBtn').textContent='⏳ Solving…';
- setStatus('running','Thinking… evaluating routes…');
+ setStatus('running','Taking a moment to look for a good route…');
  try{
   const res=await fetch('/api/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({grid:text,algorithm:algo,diagonal})}).then(r=>r.json());
   if(res.error){toast(res.error, true); setStatus('','Error: '+res.error); return;}
@@ -497,10 +519,10 @@ async function solve(){
   document.getElementById('metrics').innerHTML=`<div class="stat"><b>${m.time_ms}ms</b><small>Time</small></div><div class="stat"><b>${m.nodes_expanded}</b><small>Explored</small></div><div class="stat"><b>${m.path_length}</b><small>Steps</small></div><div class="stat"><b>${m.path_cost.toFixed(1)}</b><small>Cost</small></div>`;
   document.getElementById('benchmarkArea').innerHTML=`<p style="color:var(--muted);font-size:.82rem;margin:.6rem 0 0"><span style="color:var(--accent);font-weight:700">${res.algorithm}</span> • Frontier max ${m.max_frontier} • Branching ${m.branching}</p>`;
   document.getElementById('costInfo').textContent=res.path? `Cost ${m.path_cost.toFixed(1)} • ${m.path_length} moves` : 'No path';
-  if(!res.path){ toast('No path found — maze is blocked.', true); setStatus('', 'No path — try another maze.'); return; }
+  if(!res.path){ toast('I could not find a route through this maze.', true); setStatus('', 'No path — try another maze.'); return; }
   animateHuman(res.path, res.explored||[]);
  } catch(e){ toast(String(e), true); setStatus('', String(e)); }
- finally{ document.getElementById('solveBtn').disabled=false; document.getElementById('solveBtn').textContent='▶ Solve & Walk'; }
+ finally{ document.getElementById('solveBtn').disabled=false; document.getElementById('solveBtn').textContent='Find a route'; }
 }
 async function benchmark(){
  const text=document.getElementById('mazeText').value.trim();
@@ -536,21 +558,7 @@ async function generate(){
   toast(`Generated ${w}×${h} maze`);
  } catch(e){ toast(String(e),true); }
 }
-async function generateWeighted(){
- const w=clampSize(document.getElementById('genW').value);
- const h=clampSize(document.getElementById('genH').value);
- document.getElementById('genW').value=w; document.getElementById('genH').value=h;
- setStatus('running',`Generating weighted ${w}×${h}…`);
- try{
-  const res=await fetch(`/api/generate?w=${w}&h=${h}&weighted=1`).then(r=>r.json());
-  if(res.error){ toast(res.error,true); return; }
-  document.getElementById('mazeText').value=res.grid.join('\n');
-  stopAnimation(); renderGrid(res,null);
-  document.getElementById('metrics').innerHTML=''; document.getElementById('benchmarkArea').innerHTML='';
-  setStatus('','Weighted maze ready — terrain costs affect the path.');
-  toast(`Weighted ${w}×${h} ready`);
- } catch(e){ toast(String(e),true); }
-}
+
 function clearPath(){ stopAnimation(); lastPath=null; lastExplored=null; const t=document.getElementById('mazeText').value; if(t) renderGrid({grid:t.split('\n').filter(Boolean)},null); document.getElementById('metrics').innerHTML=''; document.getElementById('benchmarkArea').innerHTML=''; document.getElementById('stepInfo').textContent='—'; document.getElementById('progressText').textContent=''; setStatus('','Cleared.'); }
 // speed label
 document.getElementById('speed').addEventListener('input', e=>{ document.getElementById('speedVal').textContent=e.target.value+'ms'; });
@@ -562,159 +570,178 @@ solve();
 </html>
 """
 
+class MazeHandler(BaseHTTPRequestHandler):
+    """Translate browser requests into calls to the maze package."""
 
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        pass
+    server_version = "MazeWalk/1.0"
 
-    def _json(self, data, status=200):
-        body = json.dumps(data).encode()
+    def log_message(self, format: str, *args: object) -> None:
+        logger.info("%s - %s", self.address_string(), format % args)
+
+    def send_json(self, payload: dict[str, Any], status: int = 200) -> None:
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
 
-    def _html(self, html):
-        body = html.encode()
+    def send_error_json(self, message: str, status: int = 400) -> None:
+        code = "server_error" if status >= 500 else "bad_request"
+        self.send_json({"error": {"code": code, "message": message}}, status)
+
+    def send_page(self) -> None:
+        body = HTML_PAGE.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        qs = urllib.parse.parse_qs(parsed.query)
-        if parsed.path == "/" or parsed.path == "/index.html":
-            self._html(HTML_PAGE)
-            return
-        if parsed.path == "/api/generate":
-            try:
-                w_raw = qs.get("w", ["25"])[0]
-                h_raw = qs.get("h", ["15"])[0]
-                w = int(w_raw)
-                h = int(h_raw)
-                # clamp & make odd like frontend expects
-                w = max(5, min(81, w))
-                h = max(5, min(81, h))
-                if w % 2 == 0:
-                    w += 1
-                if h % 2 == 0:
-                    h += 1
-                if w > 81:
-                    w = 81
-                if h > 81:
-                    h = 81
-                weighted = qs.get("weighted", ["0"])[0] == "1"
-                seed = qs.get("seed", [None])[0]
-                seed = int(seed) if seed and seed.lstrip("-").isdigit() else None
-                maze = generate_maze(w, h, weighted=weighted, seed=seed)
-                self._json({"grid": maze.to_dict()["grid"], "width": maze.width, "height": maze.height})
-            except Exception as e:
-                self._json({"error": str(e)}, 400)
-            return
-        if parsed.path == "/api/algorithms":
-            self._json({"algorithms": ALGO_LIST})
-            return
-        self.send_error(404, "Not found")
-
-    def do_POST(self):
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length) if length else b"{}"
+    def read_json(self) -> dict[str, Any] | None:
         try:
-            data = json.loads(body.decode() or "{}")
-        except Exception as e:
-            self._json({"error": f"Invalid JSON: {e}"}, 400)
-            return
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.send_error_json("Content-Length must be an integer")
+            return None
+        if length < 0 or length > MAX_REQUEST_BYTES:
+            self.send_error_json(f"Request body is limited to {MAX_REQUEST_BYTES} bytes", 413)
+            return None
+        try:
+            value = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_error_json("Request body must be valid UTF-8 JSON")
+            return None
+        if not isinstance(value, dict):
+            self.send_error_json("JSON body must be an object")
+            return None
+        return value
 
-        if self.path == "/api/solve":
-            grid = data.get("grid", "")
-            algo_name = data.get("algorithm", "astar-manhattan")
-            diagonal = bool(data.get("diagonal", False))
-            try:
-                maze = Maze.from_text(grid)
-                if diagonal:
-                    # preserve rows but enable diagonal
+    def do_GET(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed.query)
+        try:
+            if parsed.path in {"/", "/index.html"}:
+                self.send_page()
+                return
+            if parsed.path == "/api/algorithms":
+                self.send_json({"algorithms": list(ALGORITHM_NAMES)})
+                return
+            if parsed.path == "/api/generate":
+                width = odd_size(query.get("w", [25])[0], 25)
+                height = odd_size(query.get("h", [15])[0], 15)
+                weighted = as_bool(query.get("weighted", [False])[0])
+                seed_text = query.get("seed", [None])[0]
+                seed = int(seed_text) if seed_text and seed_text.lstrip("-").isdigit() else None
+                maze = generate_maze(width, height, weighted=weighted, seed=seed)
+                self.send_json({**maze_json(maze), "weighted": weighted})
+                return
+            self.send_error_json("Not found", 404)
+        except Exception:
+            logger.exception("GET request failed")
+            self.send_error_json("The request could not be completed", 500)
+
+    def do_POST(self) -> None:
+        data = self.read_json()
+        if data is None:
+            return
+        try:
+            if self.path == "/api/generate":
+                maze = generate_maze(
+                    odd_size(data.get("width", 25), 25),
+                    odd_size(data.get("height", 15), 15),
+                    weighted=as_bool(data.get("weighted", False)),
+                    seed=data.get("seed"),
+                )
+                self.send_json({**maze_json(maze), "weighted": as_bool(data.get("weighted", False))})
+                return
+
+            grid = data.get("grid")
+            if not isinstance(grid, str) or not grid.strip():
+                self.send_error_json("grid must be a non-empty string")
+                return
+            maze = Maze.from_text(grid)
+
+            if self.path == "/api/solve":
+                if as_bool(data.get("diagonal", False)):
                     maze = Maze(maze.rows, maze.start, maze.goal, allow_diagonal=True)
-                algo = _get_algo(algo_name)
-                path, metrics = algo.solve(maze.start, maze.goal, maze=maze)
-                sol = Solution(tuple(path), cost=metrics.path_cost) if path else None
-                rendered = render(maze, sol)
-                # explored order for human-like animation
-                explored = getattr(metrics, "explored_order", None)
-                # BFS/DFS always have it; A*/others may not - build fallback from visited set
-                if explored is None:
-                    explored = list(getattr(metrics, "visited", []) or [])
-                explored_coords = [[s.row, s.column] for s in explored] if explored else []
-                self._json({
-                    "algorithm": algo.name,
-                    "path": [[s.row, s.column] for s in path] if path else None,
-                    "explored": explored_coords,
+                algorithm_name = str(data.get("algorithm", "astar-manhattan"))
+                algorithm = make_algorithm(algorithm_name)
+                path, metrics = algorithm.solve(maze.start, maze.goal, maze=maze)
+                solution = Solution(tuple(path), cost=metrics.path_cost) if path else None
+                explored = getattr(metrics, "explored_order", None) or getattr(metrics, "visited", []) or []
+                self.send_json({
+                    "algorithm": algorithm_name,
+                    "path": [[point.row, point.column] for point in path] if path else None,
+                    "explored": [[point.row, point.column] for point in explored],
                     "metrics": metrics.as_dict(),
-                    "rendered": rendered,
-                    "maze": maze.to_dict(),
+                    "rendered": render(maze, solution),
+                    "maze": maze_json(maze),
                 })
-            except Exception as e:
-                self._json({"error": str(e)}, 400)
-            return
+                return
 
-        if self.path == "/api/benchmark":
-            grid = data.get("grid", "")
-            try:
-                maze = Maze.from_text(grid)
-                algos = [_get_algo(n) for n in ALGO_LIST]
-                results = run_benchmark_suite(algos, maze)
-                # find best by cost (weighted) - fallback to shortest steps
-                best = min(results, key=lambda r: r.metrics.path_cost if r.path else float("inf"))
-                self._json({
+            if self.path == "/api/benchmark":
+                results = run_benchmark_suite([make_algorithm(name) for name in ALGORITHM_NAMES], maze)
+                best = min(results, key=lambda item: item.metrics.path_cost if item.path else float("inf"))
+                self.send_json({
                     "results": [
-                        {"algorithm": r.algorithm_name, "path": [[s.row, s.column] for s in r.path] if r.path else None, "metrics": r.metrics.as_dict()}
-                        for r in results
+                        {"algorithm": result.algorithm_name,
+                         "path": [[point.row, point.column] for point in result.path] if result.path else None,
+                         "metrics": result.metrics.as_dict()}
+                        for result in results
                     ],
-                    "best_path": [[s.row, s.column] for s in best.path] if best.path else None,
-                    "maze": maze.to_dict(),
+                    "best_path": [[point.row, point.column] for point in best.path] if best.path else None,
+                    "maze": maze_json(maze),
                 })
-            except Exception as e:
-                self._json({"error": str(e)}, 400)
-            return
+                return
 
-        if self.path == "/api/generate":
-            w = int(data.get("width", 25))
-            h = int(data.get("height", 15))
-            w = max(5, min(81, w))
-            h = max(5, min(81, h))
-            weighted = bool(data.get("weighted", False))
-            maze = generate_maze(w, h, weighted=weighted)
-            self._json({"grid": maze.to_dict()["grid"]})
-            return
+            self.send_error_json("Not found", 404)
+        except (ValueError, TypeError) as error:
+            self.send_error_json(str(error))
+        except Exception:
+            logger.exception("POST request failed")
+            self.send_error_json("The request could not be completed", 500)
 
-        self.send_error(404, "Not found")
-
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self.send_header("Allow", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8000):
-    server = HTTPServer((host, port), Handler)
-    print(f"Maze Solver Lab running at http://{host}:{port}")
-    print("   Press Ctrl+C to stop")
+def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    try:
+        server = ThreadingHTTPServer((host, port), MazeHandler)
+    except OSError as exc:
+        msg = f"Failed to start Maze Walk on {host}:{port}: {exc}"
+        print(msg)
+        logger.error(msg)
+        raise SystemExit(1) from exc
+    url = f"http://{host}:{port}"
+    print(f"Maze Walk is running at {url}", flush=True)
+    print("Press Ctrl+C to stop", flush=True)
+    logger.info("Maze Walk is running at %s", url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down...")
-        server.shutdown()
+        print("\nStopping Maze Walk...", flush=True)
+        logger.info("Stopping Maze Walk")
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    parser = argparse.ArgumentParser(description="Run the Maze Walk browser app")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    args = parser.parse_args()
-    run_server(args.host, args.port)
+    arguments = parser.parse_args()
+    run_server(arguments.host, arguments.port)

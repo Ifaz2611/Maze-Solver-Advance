@@ -9,7 +9,7 @@ from .graph import Graph
 def to_graph(maze: Maze) -> Mapping[Square, tuple[Edge, ...]]:
     """Convert walkable maze squares to an adjacency mapping (legacy dict form)."""
     return {
-        square: tuple(Edge(square, neighbor, weight=float(neighbor.cost)) for neighbor in maze.neighbors(square))
+        square: tuple(Edge(square, neighbor, weight=1.0) for neighbor in maze.neighbors(square))
         for row in maze.rows
         for square in row
         if square.walkable
@@ -17,7 +17,7 @@ def to_graph(maze: Maze) -> Mapping[Square, tuple[Edge, ...]]:
 
 
 def to_weighted_graph(maze: Maze) -> Graph:
-    """Convert maze to explicit weighted Graph (uses terrain costs)."""
+    """Convert maze to explicit Graph - uniform cost 1 for exploration."""
     graph = Graph()
     for row in maze.rows:
         for square in row:
@@ -26,6 +26,6 @@ def to_weighted_graph(maze: Maze) -> Graph:
             if square not in graph.adjacency:
                 graph.adjacency[square] = ()
             for neighbor in maze.neighbors(square):
-                edge = Edge(square, neighbor, weight=float(neighbor.cost))
+                edge = Edge(square, neighbor, weight=1.0)
                 graph.add_edge(edge)
     return graph

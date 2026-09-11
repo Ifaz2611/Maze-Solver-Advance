@@ -30,9 +30,6 @@ ALGO_MAP = {
 COLORS = {
     "#": "#0f172a",
     " ": "#ffffff",
-    ".": "#d6b98a",
-    "m": "#8b5a2b",
-    "w": "#60a5fa",
     "S": "#22c55e",
     "G": "#ef4444",
     "path": "#facc15",
@@ -50,7 +47,6 @@ def launch_gui(initial_maze: Maze | None = None):
     maze_ref: list[Maze | None] = [initial_maze]
     path_ref: list[list | None] = [None]
 
-    # Top controls
     ctrl = tk.Frame(root, bg="#1e293b", padx=10, pady=8)
     ctrl.pack(fill="x")
 
@@ -71,12 +67,7 @@ def launch_gui(initial_maze: Maze | None = None):
             messagebox.showerror("Error", str(e))
 
     def on_generate():
-        maze_ref[0] = generate_maze(25, 15, weighted=False)
-        path_ref[0] = None
-        draw()
-
-    def on_generate_w():
-        maze_ref[0] = generate_maze(25, 15, weighted=True)
+        maze_ref[0] = generate_maze(25, 15)
         path_ref[0] = None
         draw()
 
@@ -84,10 +75,6 @@ def launch_gui(initial_maze: Maze | None = None):
         if not maze_ref[0]:
             messagebox.showwarning("No maze", "Load or generate a maze first")
             return
-        algo = ALGO_MAP[algo_var.get()]
-        # recreate fresh algo instance to avoid stale state
-        from copy import deepcopy
-        # instead create new instance by class
         name = algo_var.get()
         if name == "BFS":
             algo = BFS()
@@ -102,6 +89,8 @@ def launch_gui(initial_maze: Maze | None = None):
             algo = AStar(heu)
         elif name == "Greedy":
             algo = GreedyBFS("manhattan")
+        else:
+            algo = BFS()
         path, metrics = algo.solve(maze_ref[0].start, maze_ref[0].goal, maze=maze_ref[0])
         path_ref[0] = path
         draw(visited=metrics.explored_order)
@@ -123,7 +112,6 @@ def launch_gui(initial_maze: Maze | None = None):
 
     tk.Button(ctrl, text="Open .maze", command=load_file, bg="#38bdf8", fg="#0f172a", relief="flat", padx=10).pack(side="left", padx=4)
     tk.Button(ctrl, text="Generate", command=on_generate, bg="#334155", fg="white", relief="flat", padx=10).pack(side="left", padx=2)
-    tk.Button(ctrl, text="Weighted", command=on_generate_w, bg="#334155", fg="white", relief="flat", padx=10).pack(side="left", padx=2)
     tk.Button(ctrl, text="▶ Solve", command=solve, bg="#22c55e", fg="white", relief="flat", padx=14, font=("Segoe UI", 9, "bold")).pack(side="left", padx=8)
     tk.Button(ctrl, text="📊 Benchmark", command=benchmark, bg="#a78bfa", fg="white", relief="flat", padx=10).pack(side="left", padx=2)
 
@@ -143,7 +131,6 @@ def launch_gui(initial_maze: Maze | None = None):
             return
         path_set = {(s.row, s.column) for s in path_ref[0]} if path_ref[0] else set()
         visited_set = {(s.row, s.column) for s in (visited or [])}
-        # auto size canvas
         canvas.config(width=maze.width * CELL + 2, height=maze.height * CELL + 2)
         for r in range(maze.height):
             for c in range(maze.width):
@@ -161,30 +148,9 @@ def launch_gui(initial_maze: Maze | None = None):
                 elif sq.role.value == "#":
                     col = COLORS["#"]
                 else:
-                    ch = sq.terrain.char
-                    if ch == "w":
-                        col = COLORS["w"]
-                    elif ch == "m":
-                        col = COLORS["m"]
-                    elif ch == ".":
-                        col = COLORS["."]
-                    else:
-                        col = COLORS[" "]
+                    col = COLORS[" "]
                 canvas.create_rectangle(x0, y0, x1, y1, fill=col, outline="#1e293b")
 
-        # animate visited in order if provided
-        if visited and len(visited) > 1:
-            def animate(i=0):
-                if i >= len(visited):
-                    return
-                sq = visited[i]
-                if (sq.row, sq.column) not in path_set:
-                    x0, y0 = sq.column * CELL, sq.row * CELL
-                    canvas.create_rectangle(x0, y0, x0 + CELL, y0 + CELL, fill=COLORS["visited"], outline="#1e293b")
-                root.after(10, lambda: animate(i + 1))
-            # Uncomment to animate: animate()
-
-    # initial demo maze if none
     if not maze_ref[0]:
         try:
             maze_ref[0] = load_maze(Path(__file__).parents[2] / "mazes" / "standard" / "labyrinth.maze")

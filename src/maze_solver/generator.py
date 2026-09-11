@@ -1,4 +1,4 @@
-"""Procedural maze generation for stress testing."""
+"""Procedural maze generation for exploration."""
 
 from __future__ import annotations
 
@@ -6,9 +6,6 @@ import random
 from pathlib import Path
 
 from .models.maze import Maze
-from .models.role import Role
-from .models.square import Square
-from .models.terrain import TerrainType
 
 
 def generate_maze(
@@ -23,7 +20,7 @@ def generate_maze(
     Args:
         width, height: dimensions (odd recommended for perfect maze feel)
         wall_prob: random wall density
-        weighted: if True, sprinkle dirt/mud/water terrains
+        weighted: ignored (kept for back-compat) - no terrain variation
         seed: RNG seed
     """
     if seed is not None:
@@ -48,20 +45,6 @@ def generate_maze(
             if random.random() < wall_prob:
                 grid[r][c] = "#"
 
-    # add weighted terrain
-    if weighted:
-        for r in range(1, height - 1):
-            for c in range(1, width - 1):
-                if grid[r][c] == "#":
-                    continue
-                roll = random.random()
-                if roll < 0.08:
-                    grid[r][c] = "w"  # water 10
-                elif roll < 0.15:
-                    grid[r][c] = "m"  # mud 5
-                elif roll < 0.30:
-                    grid[r][c] = "."  # dirt 2
-
     # place start / goal
     grid[1][1] = "S"
     grid[height - 2][width - 2] = "G"
@@ -69,12 +52,10 @@ def generate_maze(
     # Ensure path exists via BFS check; if blocked, carve a corridor
     text = "\n".join("".join(row) for row in grid)
     maze = Maze.from_text(text)
-    # quick BFS to test connectivity; if no path, retry with less walls
     from .graphs.algorithms.bfs import BFS
     algo = BFS()
     path, _ = algo.solve(maze.start, maze.goal, maze=maze)
     if path is None:
-        # carve simple L-shaped corridor as fallback
         for c in range(1, width - 1):
             if grid[1][c] == "#":
                 grid[1][c] = " "

@@ -28,15 +28,7 @@ def render_heatmap(maze: Maze, visited: list[Square] | set[Square]) -> str:
             return "G"
         c = counts.get(sq.position, 0)
         if c == 0:
-            # show terrain
-            if sq.terrain.name == "WATER":
-                return "w"
-            if sq.terrain.name == "MUD":
-                return "m"
-            if sq.terrain.name == "DIRT":
-                return "."
             return " "
-        # map 1..max to gradient index
         idx = min(len(_GRADIENT)-1, max(1, round(c / max_c * (len(_GRADIENT)-1))))
         return _GRADIENT[idx]
 
@@ -47,8 +39,6 @@ def render_heatmap(maze: Maze, visited: list[Square] | set[Square]) -> str:
 
 
 def render_combined_heatmap(mazes_results: dict[str, list[Square]], maze: Maze) -> str:
-    """Combine multiple algorithms visit sets into summary."""
-    # For now just alias to heatmap of union
     union: list[Square] = []
     for v in mazes_results.values():
         union.extend(v)

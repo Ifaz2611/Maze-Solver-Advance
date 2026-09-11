@@ -24,23 +24,17 @@ class Maze:
             raise ValueError("Maze rows must all have the same width.")
 
         def _make_square(row: int, column: int, char: str) -> Square:
-            # S / G have special roles, terrain = GRASS
+            # Back-compat: old weighted chars (., m, w ...) are treated as open space
+            if char in (".", "d", "m", "M", "w", "W", "g"):
+                char = " "
             if char in (Role.START.value, Role.GOAL.value, Role.WALL.value):
                 return Square(row, column, Role(char), TerrainType.GRASS if char != "#" else TerrainType.WALL)
-            # Terrain chars: ' ', '.', 'm', 'w', etc. map to OPEN role + terrain
-            if char in (" ", ".", "m", "M", "w", "W", "g", "d"):
-                try:
-                    terrain = TerrainType.from_char(char)
-                except ValueError:
-                    terrain = TerrainType.GRASS
-                # impassable terrain still rendered as wall? no - keep OPEN
-                return Square(row, column, Role.OPEN, terrain)
-            # Fallback: try Role, then terrain
+            if char == " ":
+                return Square(row, column, Role.OPEN, TerrainType.GRASS)
             try:
                 return Square(row, column, Role(char), TerrainType.GRASS)
             except ValueError:
-                terrain = TerrainType.from_char(char)
-                return Square(row, column, Role.OPEN, terrain)
+                raise ValueError(f"Unsupported character {char!r} at ({row},{column}). Allowed: '#', ' ', 'S', 'G'")
 
         rows = tuple(
             tuple(_make_square(row, column, char) for column, char in enumerate(line))
@@ -92,10 +86,7 @@ class Maze:
             "height": self.height,
             "start": [self.start.row, self.start.column],
             "goal": [self.goal.row, self.goal.column],
-            "grid": ["".join(
-                s.role.value if s.role.value in ("S", "G", "#") else s.terrain.char
-                for s in row
-            ) for row in self.rows],
+            "grid": ["".join(s.role.value for s in row) for row in self.rows],
         }
 
     @classmethod

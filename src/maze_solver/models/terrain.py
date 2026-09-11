@@ -1,4 +1,4 @@
-"""Terrain definitions for weighted pathfinding."""
+"""Terrain definitions - simplified to unweighted exploration only."""
 
 from __future__ import annotations
 
@@ -6,12 +6,9 @@ from enum import Enum
 
 
 class TerrainType(Enum):
-    """Terrain with movement cost. WALL is impassable (inf)."""
+    """Only open ground and walls - no weighted terrain."""
 
     GRASS = 1
-    DIRT = 2
-    MUD = 5
-    WATER = 10
     WALL = float("inf")
 
     @property
@@ -28,10 +25,10 @@ class TerrainType(Enum):
 
     @classmethod
     def from_char(cls, char: str) -> "TerrainType":
-        try:
+        # Back-compat: old terrain chars (., m, w, etc.) all map to GRASS
+        if char in _CHAR_TO_TERRAIN:
             return _CHAR_TO_TERRAIN[char]
-        except KeyError as exc:
-            raise ValueError(f"Unknown terrain character: {char!r}") from exc
+        raise ValueError(f"Unknown terrain character: {char!r}")
 
     def is_passable(self) -> bool:
         return self is not TerrainType.WALL
@@ -39,25 +36,21 @@ class TerrainType(Enum):
 
 _TERRAIN_TO_CHAR: dict[TerrainType, str] = {
     TerrainType.GRASS: " ",
-    TerrainType.DIRT: ".",
-    TerrainType.MUD: "m",
-    TerrainType.WATER: "w",
     TerrainType.WALL: "#",
 }
 
-# Extended aliases -- allow multiple chars per terrain for file flexibility
+# All walkable chars map to GRASS (back-compat for old weighted mazes)
 _CHAR_TO_TERRAIN: dict[str, TerrainType] = {
     " ": TerrainType.GRASS,
     "g": TerrainType.GRASS,
-    "G": TerrainType.GRASS,  # careful: G also used for GOAL role; handled separately
-    ".": TerrainType.DIRT,
-    "d": TerrainType.DIRT,
-    "m": TerrainType.MUD,
-    "M": TerrainType.MUD,
-    "w": TerrainType.WATER,
-    "W": TerrainType.WATER,
+    "G": TerrainType.GRASS,
+    ".": TerrainType.GRASS,
+    "d": TerrainType.GRASS,
+    "m": TerrainType.GRASS,
+    "M": TerrainType.GRASS,
+    "w": TerrainType.GRASS,
+    "W": TerrainType.GRASS,
     "#": TerrainType.WALL,
 }
 
-# Cost lookup for weighted expansion rate
 TERRAIN_COSTS: dict[TerrainType, float] = {t: t.cost for t in TerrainType}

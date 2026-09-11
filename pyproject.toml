@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "maze-solver"
 version = "1.0.0"
-description = "Advanced Maze Solver Lab - weighted pathfinding, benchmarking, web GUI & procedural generation"
+description = "Maze Solver Lab - exploration, benchmarking, web GUI & procedural generation"
 readme = "readme.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

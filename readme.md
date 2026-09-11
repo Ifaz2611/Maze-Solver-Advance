@@ -1,4 +1,4 @@
-# 🧩 Maze Solver Laboratory — Advanced Edition
+# Maze Solver Laboratory — Advanced Edition
 
 **Weighted pathfinding lab** comparing **BFS / DFS / Dijkstra / A* / Greedy / Bidirectional BFS** on terrain with live benchmarking, interactive Web UI, desktop GUI, heatmaps, and procedural stress-testing.
 

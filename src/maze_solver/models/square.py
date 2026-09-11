@@ -17,13 +17,11 @@ class Square:
 
     @property
     def walkable(self) -> bool:
-        if self.role == Role.WALL:
-            return False
-        return self.terrain.is_passable()
+        return self.role != Role.WALL
 
     @property
     def cost(self) -> float:
-        """Cost to ENTER this square (derived from terrain)."""
+        """Cost to ENTER this square - uniform 1 for exploration."""
         if not self.walkable:
             return float("inf")
-        return self.terrain.cost
+        return 1.0

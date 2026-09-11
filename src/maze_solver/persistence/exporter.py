@@ -54,10 +54,7 @@ def export_maze_image(maze: Maze, path: list[Square] | None, dest: str | Path, c
         draw = PILDraw.Draw(img)
         colors = {
             "wall": (30, 30, 30),
-            "grass": (255, 255, 255),
-            "dirt": (210, 180, 140),
-            "mud": (139, 90, 43),
-            "water": (100, 149, 237),
+            "open": (255, 255, 255),
             "start": (50, 205, 50),
             "goal": (220, 20, 60),
             "path": (255, 215, 0),
@@ -75,18 +72,11 @@ def export_maze_image(maze: Maze, path: list[Square] | None, dest: str | Path, c
                     col = colors["wall"]
                 elif (r, c) in path_set:
                     col = colors["path"]
-                elif sq.terrain.char == "w":
-                    col = colors["water"]
-                elif sq.terrain.char == "m":
-                    col = colors["mud"]
-                elif sq.terrain.char == ".":
-                    col = colors["dirt"]
                 else:
-                    col = colors["grass"]
+                    col = colors["open"]
                 draw.rectangle([x0, y0, x1, y1], fill=col, outline=(200, 200, 200))
         img.save(dest)
     else:
-        # PPM fallback - no dependencies
         header = f"P3\n{w * cell_size} {h * cell_size}\n255\n"
         pixels: list[str] = []
         for r in range(h):
@@ -101,12 +91,6 @@ def export_maze_image(maze: Maze, path: list[Square] | None, dest: str | Path, c
                         col = "30 30 30"
                     elif (r, c) in path_set:
                         col = "255 215 0"
-                    elif sq.terrain.char == "w":
-                        col = "100 149 237"
-                    elif sq.terrain.char == "m":
-                        col = "139 90 43"
-                    elif sq.terrain.char == ".":
-                        col = "210 180 140"
                     else:
                         col = "255 255 255"
                     for _ in range(cell_size):

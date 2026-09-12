@@ -1,7 +1,5 @@
-"""Text rendering helpers."""
+"""View helpers - Terminal and Web UI only."""
 
-from .animator import animate_search
-from .heatmap import render_heatmap
 from .renderer import render
 
-__all__ = ["render", "animate_search", "render_heatmap"]
+__all__ = ["render"]

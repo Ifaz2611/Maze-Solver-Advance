@@ -1,8 +1,8 @@
 # Maze Solver Laboratory — Advanced Edition
 
-**Weighted pathfinding lab** comparing **BFS / DFS / Dijkstra / A* / Greedy / Bidirectional BFS** on terrain with live benchmarking, interactive Web UI, desktop GUI, heatmaps, and procedural stress-testing.
+**Weighted pathfinding lab** comparing **BFS / DFS / Dijkstra / A* / Greedy / Bidirectional BFS** on terrain with live benchmarking, interactive Web UI, and procedural stress-testing.
 
-> **New in v1.0:** Web UI, Tkinter GUI, 3 new algorithms, diagonal mode, JSON/PNG export, expanded benchmark suite.
+> **New in v1.0:** Web UI, 3 new algorithms,expanded benchmark suite.
 
 ---
 
@@ -69,7 +69,6 @@ MAZE SOLVER/
 │   ├── persistence/        # serializer + exporter (JSON/PNG)
 │   ├── view/               # renderer, animator, heatmap
 │   ├── web/app.py          # interactive Web UI (stdlib HTTP server)
-│   ├── gui.py              # Tkinter desktop visualizer
 │   ├── generator.py        # procedural maze generator
 │   └── __main__.py         # CLI
 ├── pyproject.toml
@@ -162,17 +161,8 @@ Then open **http://127.0.0.1:8000** in your browser:
 - Live maze editor & procedural generator
 - REST API: `POST /api/solve`, `POST /api/benchmark`, `GET /api/generate?w=25&h=15`
 
-### 4.7 Desktop GUI — Tkinter (NEW)
 
-```bash
-maze-solver --gui
-# with initial maze
-maze-solver mazes/standard/labyrinth.maze --gui
-```
-
-Features: Open .maze files, generate weighted/unweighted, solve with any algorithm, animated visited overlay, benchmark popup.
-
-### 4.8 Other CLI flags
+### 4.7 Other CLI flags
 
 ```bash
 maze-solver mazes/standard/labyrinth.maze --no-path           # without solution
@@ -181,7 +171,7 @@ maze-solver mazes/standard/labyrinth.maze --animate            # step-by-step (s
 maze-solver mazes/standard/labyrinth.maze --diagonal --animate
 ```
 
-### 4.9 Python API
+### 4.8 Python API
 
 ```python
 from maze_solver.persistence.serializer import load_maze
@@ -248,5 +238,4 @@ Save and run `maze-solver path/to/maze.maze --benchmark`.
 | JSON export | `--export-json out.json` / `--json` |
 | PNG export | `--export-image out.png` |
 | Web UI | `--web --port 8000` |
-| Desktop GUI | `--gui` |
 | Procedural | `--generate 31x21 --weighted --seed 42` |

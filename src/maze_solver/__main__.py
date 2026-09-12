@@ -17,7 +17,6 @@ from .graphs.heuristics import HEURISTICS
 from .models.maze import Maze
 from .models.solution import Solution
 from .persistence.serializer import load_maze
-from .view.heatmap import render_heatmap
 from .view.renderer import render
 
 
@@ -55,16 +54,15 @@ def _build_algorithms(args):
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Maze Solver Laboratory - benchmark BFS/DFS/Dijkstra/A*/Greedy/Bi-BFS | Web GUI | Exploration",
+        description="Maze Solver Laboratory - benchmark BFS/DFS/Dijkstra/A*/Greedy/Bi-BFS | Web UI | Terminal",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   maze-solver mazes/standard/labyrinth.maze
-  maze-solver mazes/standard/labyrinth.maze --benchmark --heatmap
-  maze-solver mazes/standard/miniature.maze --algorithm astar --heuristic octile --animate
+  maze-solver mazes/standard/labyrinth.maze --benchmark
+  maze-solver mazes/standard/miniature.maze --algorithm astar --heuristic octile
   maze-solver --generate 31x21 --benchmark --output mazes/procedural/my.maze
   maze-solver --web --port 8000
-  maze-solver --gui
   maze-solver maze.maze --algorithm bfs --export-json result.json --export-image result.png
         """,
     )
@@ -74,8 +72,6 @@ Examples:
     parser.add_argument("--heuristic", choices=list(HEURISTICS.keys()), default="manhattan", help="Heuristic for single A*/Greedy run")
     parser.add_argument("--algorithm", choices=["bfs", "dfs", "dijkstra", "astar", "greedy", "bi-bfs"], default="astar", help="Single algorithm (non-benchmark)")
     parser.add_argument("--no-path", action="store_true", help="Render without solution")
-    parser.add_argument("--heatmap", action="store_true", help="Show heatmaps (benchmark mode)")
-    parser.add_argument("--animate", action="store_true", help="Animate search (single algo)")
     parser.add_argument("--generate", type=str, help="Generate maze WxH e.g. 31x21")
     parser.add_argument("--seed", type=int, default=None, help="RNG seed")
     parser.add_argument("--output", type=Path, help="Save generated maze")
@@ -85,21 +81,12 @@ Examples:
     parser.add_argument("--web", action="store_true", help="Launch interactive Web UI")
     parser.add_argument("--port", type=int, default=8000, help="Web UI port (default 8000)")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Web UI host")
-    parser.add_argument("--gui", action="store_true", help="Launch Tkinter desktop GUI")
     parser.add_argument("--diagonal", action="store_true", help="Allow diagonal movement (8-way)")
     args = parser.parse_args()
 
     if args.web:
         from .web.app import run_server
         run_server(args.host, args.port)
-        return 0
-
-    if args.gui:
-        from .gui import launch_gui
-        maze = None
-        if args.maze and Path(args.maze).exists():
-            maze = load_maze(args.maze)
-        launch_gui(maze)
         return 0
 
     if args.generate:
@@ -114,7 +101,7 @@ Examples:
             save_generated(maze, args.output)
             print(f"Generated {w}x{h} maze -> {args.output}")
         print(render(maze))
-        if args.benchmark or args.heatmap:
+        if args.benchmark:
             algos = _build_algorithms(args)
             results = run_benchmark_suite(algos, maze)
             print("\n" + format_table(results))
@@ -125,13 +112,13 @@ Examples:
         return 0
 
     if not args.maze:
-        parser.error("maze path required (or use --generate WxH, --web, --gui)")
+        parser.error("maze path required (or use --generate WxH, --web)")
 
     maze = load_maze(args.maze)
     if args.diagonal:
         maze = Maze(maze.rows, maze.start, maze.goal, allow_diagonal=True)
 
-    if args.benchmark or args.heatmap or args.algorithms:
+    if args.benchmark or args.algorithms:
         algos = _build_algorithms(args)
         results = run_benchmark_suite(algos, maze)
         print(f"--- Benchmark: {args.maze} ({maze.width}x{maze.height}) ---\n")
@@ -157,11 +144,6 @@ Examples:
             export_benchmark_json(results, args.export_json)
             print(f"Benchmark JSON -> {args.export_json}")
 
-        if args.heatmap:
-            print("\n--- Heatmaps (visited frequency) ---")
-            for r in results:
-                print(f"\n{r.algorithm_name} heatmap:")
-                print(render_heatmap(maze, r.metrics.explored_order or list(r.metrics.visited)))
         return 0 if any(r.path for r in results) else 1
 
     if args.algorithm == "bfs":
@@ -180,11 +162,7 @@ Examples:
     path, metrics = algo.solve(maze.start, maze.goal, maze=maze)
     solution = Solution(tuple(path), cost=metrics.path_cost) if path else None
 
-    if args.animate and path:
-        from .view.animator import animate_search
-        animate_search(maze, metrics.explored_order, path)
-    else:
-        print(render(maze, None if args.no_path else solution))
+    print(render(maze, None if args.no_path else solution))
 
     if args.json:
         print(json.dumps({"algorithm": algo.name, "metrics": metrics.as_dict(), "path": [[s.row, s.column] for s in path] if path else None}, indent=2))
